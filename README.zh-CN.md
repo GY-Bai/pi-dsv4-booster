@@ -124,6 +124,10 @@ pi install git:github.com/GY-Bai/pi-dsv4-booster
       "kernel-dev": {
         "preserveCustomPrompt": false,
         "personaMode": "bootstrap-only"
+      },
+      "reviewer": {
+        "preserveCustomPrompt": false,
+        "personaMode": "bootstrap-only"
       }
     },
     "debug": false

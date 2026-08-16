@@ -151,6 +151,10 @@ event**, so edits take effect immediately.
       "kernel-dev": {
         "preserveCustomPrompt": false,
         "personaMode": "bootstrap-only"
+      },
+      "reviewer": {
+        "preserveCustomPrompt": false,
+        "personaMode": "bootstrap-only"
       }
     },
     "debug": false
