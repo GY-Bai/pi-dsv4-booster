@@ -1,5 +1,9 @@
 # pi-dsv4-booster
 
+<p align="center">
+  <img src="docs/social-preview.jpg" alt="pi-dsv4-booster banner" width="100%">
+</p>
+
 > **Boosts DeepSeek V4 (DSv4) models in pi** — anchors the first request on the
 > DeepSeek Harness **Minimal** condition, then promotes to the full tool catalog
 > after the first durable tool call.

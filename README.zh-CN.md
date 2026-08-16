@@ -1,5 +1,9 @@
 # pi-dsv4-booster
 
+<p align="center">
+  <img src="docs/social-preview.jpg" alt="pi-dsv4-booster banner" width="100%">
+</p>
+
 > **为 pi 中的 DeepSeek V4 (DSv4) 模型提速** —— 首轮请求锚定在 DeepSeek Harness
 > **Minimal** 条件上，首次持久工具调用后晋升为完整工具目录。
 
