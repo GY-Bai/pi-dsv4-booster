@@ -106,10 +106,20 @@ interface AnchoredConfig {
   notify: boolean;
   /**
    * Keep custom/subagent system prompts and prepend the Minimal persona
-   * instead of replacing the whole prompt. Auto-enabled for persisted child
-   * sessions that have a customPrompt; set explicitly to force it elsewhere.
+   * instead of replacing the whole prompt.
+   * - `true`: always preserve
+   * - `false`: never preserve (replace with Minimal persona)
+   * - `null`: auto — preserved for persisted child sessions with a custom
+   *   prompt, replaced elsewhere
    */
-  preserveCustomPrompt: boolean;
+  preserveCustomPrompt: boolean | null;
+  /**
+   * Per-agent overrides keyed by subagent type prefix (e.g. `kernel-dev`,
+   * `reviewer`). Values are partial config keys merged over the base config
+   * for that agent, letting different subagent roles use different persona
+   * strategies.
+   */
+  agentOverrides: Record<string, Record<string, unknown>>;
   /** Console diagnostics for session-level behavior (subagent testing, etc). */
   debug: boolean;
 }
@@ -133,7 +143,8 @@ const DEFAULT_CONFIG: AnchoredConfig = {
   suppressContextSources: ["contextFiles", "skills"],
   bootstrapMaxTokens: null,
   notify: true,
-  preserveCustomPrompt: false,
+  preserveCustomPrompt: null,
+  agentOverrides: {},
   debug: false,
 };
 
@@ -217,6 +228,8 @@ function loadConfig(ctx: ExtensionContext): void {
         : raw.bootstrapPersona,
     personaMode:
       raw.personaMode === "bootstrap-only" ? "bootstrap-only" : "session",
+    preserveCustomPrompt:
+      typeof raw.preserveCustomPrompt === "boolean" ? raw.preserveCustomPrompt : null,
   };
   // minimalSystemPrompt compat: false disables the persona entirely
   // (keep pi's default system prompt) — unless bootstrapPersona was EXPLICITLY
@@ -229,6 +242,37 @@ function loadConfig(ctx: ExtensionContext): void {
     if (projectRaw.suppressContextSources === undefined) {
       config.suppressContextSources = [];
     }
+  }
+
+  // Per-agent overrides: pi-subagents name sessions like `kernel-dev#abc123`;
+  // match the type prefix and merge partial config keys for that agent only.
+  const agentName = ctx.sessionManager.getSessionName() ?? "";
+  const agentKey = agentName.split("#")[0];
+  const override = config.agentOverrides?.[agentKey];
+  if (override && typeof override === "object") {
+    config = {
+      ...config,
+      ...override,
+      models: Array.isArray(override.models) ? [...new Set(override.models)] : config.models,
+      bootstrapTools:
+        Array.isArray(override.bootstrapTools) && override.bootstrapTools.length > 0
+          ? [...new Set(override.bootstrapTools)]
+          : config.bootstrapTools,
+      bootstrapPersona:
+        override.bootstrapPersona === null || override.bootstrapPersona === undefined
+          ? config.bootstrapPersona
+          : override.bootstrapPersona,
+      personaMode:
+        override.personaMode === "bootstrap-only" ? "bootstrap-only" : config.personaMode,
+      suppressContextSources:
+        Array.isArray(override.suppressContextSources)
+          ? [...new Set(override.suppressContextSources)]
+          : config.suppressContextSources,
+      preserveCustomPrompt:
+        typeof override.preserveCustomPrompt === "boolean"
+          ? override.preserveCustomPrompt
+          : config.preserveCustomPrompt,
+    };
   }
 }
 
@@ -276,11 +320,12 @@ function isChildSession(ctx: ExtensionContext): boolean {
  * the persona as a prefix, while still applying the bootstrap tool filter.
  */
 function shouldPreserveCustomPrompt(ctx: ExtensionContext, customPrompt?: string): boolean {
-  if (config.preserveCustomPrompt) return true;
+  if (config.preserveCustomPrompt === true) return true;
+  if (config.preserveCustomPrompt === false) return false;
   if (!isChildSession(ctx)) return false;
-  // In before_agent_start we can inspect the actual customPrompt. In the
-  // payload fallback we do not have it, so a child session is enough to
-  // choose the preserving path (the prepend helper is idempotent).
+  // Auto mode: persisted child sessions with a custom prompt are preserved;
+  // in the payload fallback we do not have customPrompt, so a child session
+  // is enough to choose the preserving path (the prepend helper is idempotent).
   return customPrompt === undefined || customPrompt.trim().length > 0;
 }
 

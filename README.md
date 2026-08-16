@@ -146,7 +146,13 @@ event**, so edits take effect immediately.
     "suppressContextSources": ["contextFiles", "skills"],
     "bootstrapMaxTokens": null,
     "notify": true,
-    "preserveCustomPrompt": false,
+    "preserveCustomPrompt": null,
+    "agentOverrides": {
+      "kernel-dev": {
+        "preserveCustomPrompt": false,
+        "personaMode": "bootstrap-only"
+      }
+    },
     "debug": false
   }
 }
@@ -168,7 +174,8 @@ event**, so edits take effect immediately.
 | `suppressContextSources` | `["contextFiles","skills"]` | Injection sections stripped in strip mode; `[]` disables. |
 | `bootstrapMaxTokens` | `null` | Optional output cap for request #1 (rewrites `max_tokens`). |
 | `notify` | `true` | Show a TUI notification on promotion. |
-| `preserveCustomPrompt` | `false` | Keep custom/subagent system prompts and prepend the Minimal persona instead of replacing the whole prompt. Auto-enabled for persisted child sessions with a custom prompt. |
+| `preserveCustomPrompt` | `null` | `true` always keep custom/subagent prompts and prepend the Minimal persona; `false` always replace with the Minimal persona; `null` auto — preserve for persisted child sessions with a custom prompt, replace elsewhere. |
+| `agentOverrides` | `{}` | Per-agent overrides keyed by subagent type prefix (e.g. `kernel-dev`). Values are partial config keys merged for that agent only, useful for giving different subagent roles different persona strategies. |
 | `debug` | `false` | Console diagnostics (session/phase/payload before/after filtering). |
 
 ## Commands

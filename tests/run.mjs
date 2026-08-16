@@ -50,11 +50,15 @@ const ctx = {
   ui,
   model: { provider: "opencode-go", id: "deepseek-v4-flash" },
   isProjectTrusted: () => true,
-  sessionManager: { getEntries: () => entries, getSessionId: () => "sess-1", buildContextEntries: () => entries, getHeader: () => null },
+  sessionManager: { getEntries: () => entries, getSessionId: () => "sess-1", buildContextEntries: () => entries, getHeader: () => null, getSessionName: () => "test-agent#1" },
 };
 const childCtx = {
   ...ctx,
-  sessionManager: { getEntries: () => entries, getSessionId: () => "sess-child", buildContextEntries: () => entries, getHeader: () => ({ parentSession: "/tmp/anchor-ab-test/parent.jsonl" }) },
+  sessionManager: { getEntries: () => entries, getSessionId: () => "sess-child", buildContextEntries: () => entries, getHeader: () => ({ parentSession: "/tmp/anchor-ab-test/parent.jsonl" }), getSessionName: () => "reviewer#abc123" },
+};
+const kernelCtx = {
+  ...childCtx,
+  sessionManager: { ...childCtx.sessionManager, getSessionName: () => "kernel-dev#abc123" },
 };
 
 // ---- event emission helper ----
@@ -243,6 +247,16 @@ const pay12 = { tools: ALL_TOOLS().map((n) => ({ name: n, type: "function", func
 const r12b = await emit("before_provider_request", { payload: pay12 }, childCtx);
 check("subagent payload keeps custom prompt", r12b && r12b.messages[0].content.includes("You are an independent reviewer."), JSON.stringify(r12b));
 check("subagent payload prepends persona", r12b && r12b.messages[0].content.startsWith("You are a helpful software engineer assistant."), JSON.stringify(r12b));
+
+// ---- scenario 13: per-agent override disables custom prompt preservation ----
+console.log("\n=== Scenario 13: per-agent override (kernel-dev) ===");
+entries.length = 0; appended.length = 0;
+writeFileSync("/tmp/anchor-ab-test/.pi/settings.json", JSON.stringify({ anchoredTools: { agentOverrides: { "kernel-dev": { preserveCustomPrompt: false, personaMode: "bootstrap-only" } } } }));
+await emit("session_start", { reason: "new" }, kernelCtx);
+const kernelPrompt = "You are a kernel engineer. Do not modify files.";
+const r13 = await emit("before_agent_start", { systemPrompt: kernelPrompt, systemPromptOptions: { customPrompt: kernelPrompt } }, kernelCtx);
+check("kernel-dev override replaces custom prompt", r13 && r13.systemPrompt.startsWith("You are a helpful software engineer assistant.") && !r13.systemPrompt.includes("You are a kernel engineer"), JSON.stringify(r13));
+rmSync("/tmp/anchor-ab-test/.pi/settings.json", { force: true });
 
 // restore default state
 await emit("session_start", { reason: "new" });

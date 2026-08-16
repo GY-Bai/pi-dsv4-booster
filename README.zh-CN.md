@@ -119,7 +119,13 @@ pi install git:github.com/GY-Bai/pi-dsv4-booster
     "suppressContextSources": ["contextFiles", "skills"],
     "bootstrapMaxTokens": null,
     "notify": true,
-    "preserveCustomPrompt": false,
+    "preserveCustomPrompt": null,
+    "agentOverrides": {
+      "kernel-dev": {
+        "preserveCustomPrompt": false,
+        "personaMode": "bootstrap-only"
+      }
+    },
     "debug": false
   }
 }
@@ -140,7 +146,8 @@ pi install git:github.com/GY-Bai/pi-dsv4-booster
 | `suppressContextSources` | `["contextFiles","skills"]` | 剥离模式下的注入段；`[]` 关闭 |
 | `bootstrapMaxTokens` | `null` | 请求 #1 可选输出封顶（改写 `max_tokens`） |
 | `notify` | `true` | 晋升时 TUI 通知 |
-| `preserveCustomPrompt` | `false` | 保留自定义/子代理 system prompt，并将 Minimal persona 前置而不是整体替换；对带自定义 prompt 的持久子会话自动启用 |
+| `preserveCustomPrompt` | `null` | `true` 始终保留自定义/子代理 prompt 并前置 Minimal persona；`false` 始终替换为 Minimal persona；`null` 自动——对带自定义 prompt 的持久子会话保留，其余替换 |
+| `agentOverrides` | `{}` | 按子代理类型前缀（如 `kernel-dev`）覆盖配置；值为部分配置键，只对该类型 agent 生效，适合给不同角色子代理不同 persona 策略 |
 | `debug` | `false` | console 诊断日志（session/phase/payload 过滤前后） |
 
 ## 命令
