@@ -1,0 +1,32 @@
+{
+  "name": "pi-dsv4-booster",
+  "version": "0.1.0",
+  "description": "Boosts DeepSeek V4 models in pi: anchors the first request on the DSH Minimal condition (bash + str_replace_editor + minimal persona), then promotes to the full tool catalog after the first durable tool call. Port of dsh-anchored-standard.",
+  "author": "GY-Bai",
+  "license": "MIT",
+  "keywords": [
+    "pi",
+    "pi-package",
+    "pi-extension",
+    "deepseek",
+    "dsh",
+    "anchored-standard",
+    "minimal",
+    "trajectory"
+  ],
+  "type": "module",
+  "main": "./src/index.ts",
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.80.0"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  }
+}
