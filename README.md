@@ -99,6 +99,13 @@ logs: the subagent's first payload is filtered to
 `[bash, str_replace_editor]`, then restored after its first tool call. This is
 stronger than DSH's `includeSubagents` — **zero extra anchor-round cost**.
 
+Custom subagents that use `prompt_mode: replace` (for example a `Reviewer`
+agent with its own role instructions) keep their custom system prompt. In that
+case the extension detects the child session + custom prompt and **prepends**
+the Minimal persona instead of replacing the whole prompt, while still applying
+the bootstrap tool filter. This lets specialized agents benefit from the
+anchored trajectory without losing their role instructions.
+
 ## Installation
 
 ```sh
@@ -135,6 +142,7 @@ event**, so edits take effect immediately.
     "suppressContextSources": ["contextFiles", "skills"],
     "bootstrapMaxTokens": null,
     "notify": true,
+    "preserveCustomPrompt": false,
     "debug": false
   }
 }
@@ -156,6 +164,7 @@ event**, so edits take effect immediately.
 | `suppressContextSources` | `["contextFiles","skills"]` | Injection sections stripped in strip mode; `[]` disables. |
 | `bootstrapMaxTokens` | `null` | Optional output cap for request #1 (rewrites `max_tokens`). |
 | `notify` | `true` | Show a TUI notification on promotion. |
+| `preserveCustomPrompt` | `false` | Keep custom/subagent system prompts and prepend the Minimal persona instead of replacing the whole prompt. Auto-enabled for persisted child sessions with a custom prompt. |
 | `debug` | `false` | Console diagnostics (session/phase/payload before/after filtering). |
 
 ## Commands
@@ -207,7 +216,7 @@ node tests/run.mjs      # extension logic: bootstrap/promote/resume/models filte
 node tests/sre-run.mjs  # str_replace_editor behavior: view/replace/insert/create/error semantics
 ```
 
-Both suites pass in this repository (29 extension-logic assertions + 9
+Both suites pass in this repository (33 extension-logic assertions + 9
 `str_replace_editor` behavior assertions).
 
 ## Comparison with upstream

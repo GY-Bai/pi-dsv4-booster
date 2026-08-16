@@ -64,7 +64,8 @@
  *       "promoteOn": "either",                     // "either" | "tool-call" | "assistant-message" | "never"
  *       "suppressContextSources": ["contextFiles", "skills"],
  *       "bootstrapMaxTokens": null,                // optional first-request output cap
- *       "notify": true                             // TUI notice on promotion
+ *       "notify": true,                            // TUI notice on promotion
+ *       "preserveCustomPrompt": false              // keep custom/subagent prompts and prepend persona
  *     }
  *   }
  */
@@ -103,6 +104,12 @@ interface AnchoredConfig {
   suppressContextSources: Array<"contextFiles" | "skills">;
   bootstrapMaxTokens: number | null;
   notify: boolean;
+  /**
+   * Keep custom/subagent system prompts and prepend the Minimal persona
+   * instead of replacing the whole prompt. Auto-enabled for persisted child
+   * sessions that have a customPrompt; set explicitly to force it elsewhere.
+   */
+  preserveCustomPrompt: boolean;
   /** Console diagnostics for session-level behavior (subagent testing, etc). */
   debug: boolean;
 }
@@ -126,6 +133,7 @@ const DEFAULT_CONFIG: AnchoredConfig = {
   suppressContextSources: ["contextFiles", "skills"],
   bootstrapMaxTokens: null,
   notify: true,
+  preserveCustomPrompt: false,
   debug: false,
 };
 
@@ -253,6 +261,29 @@ function isTarget(ctx: ExtensionContext): boolean {
   return modelMatches(ctx.model.id, ctx.model.provider, config.models);
 }
 
+/** Persisted child sessions (pi-subagents, forks, etc.) carry a parentSession. */
+function isChildSession(ctx: ExtensionContext): boolean {
+  return Boolean(ctx.sessionManager.getHeader()?.parentSession);
+}
+
+/**
+ * Whether to preserve the current custom system prompt and prepend the Minimal
+ * persona instead of replacing the whole prompt.
+ *
+ * Custom subagents (e.g. Reviewer with `prompt_mode: replace`) must keep their
+ * role instructions; replacing them with the one-line Minimal persona would
+ * destroy the agent's purpose. For those sessions we keep the prompt and add
+ * the persona as a prefix, while still applying the bootstrap tool filter.
+ */
+function shouldPreserveCustomPrompt(ctx: ExtensionContext, customPrompt?: string): boolean {
+  if (config.preserveCustomPrompt) return true;
+  if (!isChildSession(ctx)) return false;
+  // In before_agent_start we can inspect the actual customPrompt. In the
+  // payload fallback we do not have it, so a child session is enough to
+  // choose the preserving path (the prepend helper is idempotent).
+  return customPrompt === undefined || customPrompt.trim().length > 0;
+}
+
 // ---------------- phase derivation (resume-safe) ----------------------------
 
 /** Derive phase from persisted session entries (DSH-style, from durable events). */
@@ -344,6 +375,35 @@ function rewriteSystemPrompt(payload: Record<string, unknown>, text: string): bo
   if (m.role !== "system" && m.role !== "developer") return false;
   if (typeof m.content !== "string" || m.content === text) return false;
   m.content = text;
+  return true;
+}
+
+/** Prepend the Minimal persona to the existing system prompt (idempotent). */
+function prependSystemPrompt(payload: Record<string, unknown>, text: string): boolean {
+  const apply = (content: string): string => {
+    if (content.startsWith(text)) return content;
+    return `${text}\n\n${content}`;
+  };
+
+  if (typeof payload.system === "string") {
+    const updated = apply(payload.system);
+    if (updated !== payload.system) {
+      payload.system = updated;
+      return true;
+    }
+    return false;
+  }
+
+  const messages = payload.messages;
+  if (!Array.isArray(messages) || messages.length === 0) return false;
+  const first = messages[0];
+  if (typeof first !== "object" || first === null) return false;
+  const m = first as Record<string, unknown>;
+  if (m.role !== "system" && m.role !== "developer") return false;
+  if (typeof m.content !== "string") return false;
+  const updated = apply(m.content);
+  if (updated === m.content) return false;
+  m.content = updated;
   return true;
 }
 
@@ -611,10 +671,14 @@ export default function (pi: ExtensionAPI) {
     if (!config.enabled || !isTarget(ctx)) return;
     if (config.personaMode === "bootstrap-only" && phase !== "bootstrap") return;
     if (config.bootstrapPersona) {
+      const persona = config.bootstrapPersona.trim();
+      if (shouldPreserveCustomPrompt(ctx, event.systemPromptOptions.customPrompt)) {
+        return { systemPrompt: `${persona}\n\n${event.systemPrompt}` };
+      }
       const cwdLine = config.bootstrapCwdLine
         ? `\n\nCurrent working directory: ${ctx.cwd.replace(/\\/g, "/")}`
         : "";
-      return { systemPrompt: config.bootstrapPersona.trim() + cwdLine };
+      return { systemPrompt: persona + cwdLine };
     }
     if (phase !== "bootstrap") return;
     if (config.suppressContextSources.length === 0) return;
@@ -671,7 +735,11 @@ export default function (pi: ExtensionAPI) {
     // Persona (only when no before_agent_start persona override is in play —
     // both paths converge on the same text, payload rewrite is the fallback).
     if (config.bootstrapPersona) {
-      if (rewriteSystemPrompt(payload, config.bootstrapPersona)) changed = true;
+      if (shouldPreserveCustomPrompt(ctx)) {
+        if (prependSystemPrompt(payload, config.bootstrapPersona)) changed = true;
+      } else {
+        if (rewriteSystemPrompt(payload, config.bootstrapPersona)) changed = true;
+      }
     }
 
     const tools = payload.tools;
@@ -736,6 +804,7 @@ export default function (pi: ExtensionAPI) {
       `  suppressContextSources: ${config.suppressContextSources.join(", ") || "(none)"}`,
       `  bootstrapMaxTokens: ${config.bootstrapMaxTokens ?? "unset"}`,
       `  notify: ${config.notify}`,
+      `  preserveCustomPrompt: ${config.preserveCustomPrompt}`,
       `  active: ${pi.getActiveTools().join(", ")}`,
     ];
     ctx.ui.notify(lines.join("\n"), "info");

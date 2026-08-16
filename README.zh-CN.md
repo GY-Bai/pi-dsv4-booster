@@ -81,6 +81,11 @@ pi-subagents 的 append 模式把父 agent 的 system prompt 原样嵌入子代�
 全量。实测确认（debug 日志）：子代理首轮 payload 被过滤为 `[bash, str_replace_editor]`，
 首次工具调用后恢复全量。比 DSH 的 includeSubagents 更强——**零额外锚定轮成本**。
 
+对于使用 `prompt_mode: replace` 的自定义子代理（例如带自身角色指令的
+`Reviewer`），插件会检测到子会话 + 自定义 prompt，**保留原 system prompt 并把
+Minimal persona 前置**，而不是整体替换；首轮工具过滤仍然生效。这样专业角色子代理
+既能吃到锚定轨迹，又不会丢失自己的角色说明。
+
 ## 安装
 
 ```sh
@@ -110,6 +115,7 @@ pi install git:github.com/GY-Bai/pi-dsv4-booster
     "suppressContextSources": ["contextFiles", "skills"],
     "bootstrapMaxTokens": null,
     "notify": true,
+    "preserveCustomPrompt": false,
     "debug": false
   }
 }
@@ -130,6 +136,7 @@ pi install git:github.com/GY-Bai/pi-dsv4-booster
 | `suppressContextSources` | `["contextFiles","skills"]` | 剥离模式下的注入段；`[]` 关闭 |
 | `bootstrapMaxTokens` | `null` | 请求 #1 可选输出封顶（改写 `max_tokens`） |
 | `notify` | `true` | 晋升时 TUI 通知 |
+| `preserveCustomPrompt` | `false` | 保留自定义/子代理 system prompt，并将 Minimal persona 前置而不是整体替换；对带自定义 prompt 的持久子会话自动启用 |
 | `debug` | `false` | console 诊断日志（session/phase/payload 过滤前后） |
 
 ## 命令
@@ -173,7 +180,7 @@ node tests/run.mjs      # 扩展逻辑：bootstrap/晋升/resume/models 过滤/p
 node tests/sre-run.mjs  # str_replace_editor 行为：view/replace/insert/create/错误语义
 ```
 
-本仓库两套测试均通过（29 项扩展逻辑断言 + 9 项 `str_replace_editor` 行为断言）。
+本仓库两套测试均通过（33 项扩展逻辑断言 + 9 项 `str_replace_editor` 行为断言）。
 
 ## 与上游差异
 
