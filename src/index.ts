@@ -14,8 +14,9 @@
  * Minimal 99/96 vs Anchored Standard 98/99). Staying minimal forever forfeits
  * the heavy tools, so the two-phase trick:
  *
- *   - Request #1 (bootstrap): only a minimal tool pair (bash + read) and the
- *     DSH Minimal persona ("You are a helpful software engineer assistant.",
+ *   - Request #1 (bootstrap): only the DSH Minimal tool pair
+ *     (bash + str_replace_editor) and the DSH Minimal persona
+ *     ("You are a helpful software engineer assistant.",
  *     byte-identical, NOT reworded — the trajectory anchor). AGENTS.md
  *     project-context and the skill catalog never enter the prompt for
  *     target models. User-invoked skills (/skill:...) are NOT filtered —
@@ -55,7 +56,7 @@
  *     "piDsv4Booster": {
  *       "enabled": true,
  *       "models": [],                              // glob patterns; [] = all models
- *       "bootstrapTools": ["bash", "read"],
+ *       "bootstrapTools": ["bash", "str_replace_editor"],
  *       "bootstrapPersona": "You are a helpful software engineer assistant.",
  *       "bootstrapCwdLine": true,
  *       "personaMode": "session",                  // "session" | "bootstrap-only"

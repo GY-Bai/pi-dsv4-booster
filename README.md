@@ -1,99 +1,125 @@
 # pi-dsv4-booster
 
 > **Boosts DeepSeek V4 (DSv4) models in pi** — anchors the first request on the
-> DeepSeek Harness **Minimal** condition, then promotes to the full tool
-> catalog after the first durable tool call.
+> DeepSeek Harness **Minimal** condition, then promotes to the full tool catalog
+> after the first durable tool call.
 
-DeepSeek Harness 社区 preset
-[`xiaobright/dsh-anchored-standard`](https://github.com/xiaobright/dsh-anchored-standard)
-的 pi 移植（并融合 dbydd/pi-anchored-tool-for-dspro 的 payload 层方案）。
-目标：让 DSv4 模型在 pi 里也吃到 RL 训练对齐的 **Minimal 轨迹红利**，同时不损失
-任何工具能力。
+🌐 **English** | [中文](./README.zh-CN.md)
 
-## 为什么
+A pi port of the DeepSeek Harness community preset
+[`xiaobright/dsh-anchored-standard`](https://github.com/xiaobright/dsh-anchored-standard),
+merged with the payload-layer approach from
+[`dbydd/pi-anchored-tool-for-dspro`](https://github.com/dbydd/pi-anchored-tool-for-dspro).
 
-DeepSeek V4 系模型会强烈依赖**首轮请求中可见的工具目录与 system prompt** 选择执行轨迹
-（modeltest 触发机制实验，issue #11）：
+The goal is to let DSv4 models in pi enjoy the RL-aligned **Minimal trajectory
+benefit** without losing any tool capability.
 
-| 条件 | 首轮轨迹 | Project2 分数 |
+---
+
+## Why
+
+DeepSeek V4 models strongly steer their execution trajectory from the **tool
+catalog and system prompt visible in the first request** (modeltest trigger
+experiments, issue #11):
+
+| Condition | First-turn trajectory | Project2 score |
 |---|---|---|
-| Standard（25 工具 + 完整 prompt） | `Let me...` standard-like | 91 |
+| Standard (25 tools + full prompt) | `Let me...` standard-like | 91 |
 | PTC | `Let me` | 92 |
-| **Minimal（2 工具 + 一句话 persona）** | `We need...` minimal-like | **99 / 96** |
-| **Anchored（先 Minimal 后晋升）** | 先 `We need`，晋升后不回归 | **98 / 99** |
+| **Minimal (2 tools + one-line persona)** | `We need...` minimal-like | **99 / 96** |
+| **Anchored (Minimal first, then promote)** | `We need` first, no regression after promotion | **98 / 99** |
 
-工具目录是**轨迹选择器**：它本该只告诉模型"有什么工具可用"，在 DSv4 上却顺带决定了
-"用哪种脑子思考"。本插件用工程手段把这两个被 RL 绑定的变量重新拆开——**首轮锚定
-Minimal 轨迹，晋升后恢复完整能力**。
+The tool catalog is a **trajectory selector**: it is supposed to tell the model
+"what tools are available", but on DSv4 it also decides "which kind of thinking
+to use". This extension separates those two RL-bound variables with an
+engineering trick — **anchor the first request on the Minimal trajectory, then
+restore full capability after promotion**.
 
-## 机制
+## How it works
 
 ```
-用户第一条消息（新会话）
+First user message (new session)
         │
         ▼
-┌ 请求 #1 ─ bootstrap 阶段 ────────────────────────────┐
-│ 工具   : bash + str_replace_editor                   │
-│          （与官方 minimal preset 逐字节同名；          │
-│            str_replace_editor 为本插件注册的官方      │
-│            schema 完整实现）                          │
-│ prompt : Minimal persona 整体覆盖                     │
-│          "You are a helpful software engineer         │
-│           assistant."（DSH 原文，勿改写）             │
-│ 注入   : AGENTS.md / 技能目录 不进入 prompt           │
-│ 预算   : bootstrapMaxTokens（可选）                   │
-└───────────────────────────────────────────────────────┘
-        │ 首次持久 tool/call 或首次 assistant/message
-        ▼ 晋升（从持久 session entries 推导，resume 安全）
-┌ 请求 #2 起 ─ promoted 阶段 ──────────────────────────┐
-│ 工具   : 完整 active set（内置 + 全部扩展工具，        │
-│          含 Agent/subagent/web_search 等）            │
-│ prompt : Minimal persona 全程保持                     │
-│          （DSH complete: true 语义，仅工具目录晋升）   │
-└───────────────────────────────────────────────────────┘
+┌ Request #1 ─ bootstrap phase ─────────────────────────────┐
+│ Tools  : bash + str_replace_editor                        │
+│          (byte-identical names to the official minimal    │
+│           preset; str_replace_editor is a full local      │
+│           implementation registered by this extension)    │
+│ Prompt : Minimal persona overrides the whole system prompt│
+│          "You are a helpful software engineer assistant." │
+│          (DSH original text — do not reword)              │
+│ Inject : AGENTS.md / skill catalog stay out of the prompt │
+│ Budget : bootstrapMaxTokens (optional)                    │
+└───────────────────────────────────────────────────────────┘
+        │ first durable tool call or first assistant message
+        ▼ (derived from persisted session entries — resume safe)
+┌ Request #2+ ─ promoted phase ─────────────────────────────┐
+│ Tools  : full active set (built-in + all extension tools,  │
+│          including Agent/subagent, web_search, etc.)       │
+│ Prompt : Minimal persona is kept for the whole session     │
+│          (DSH complete: true semantics; only the tool      │
+│          catalog promotes)                                 │
+└────────────────────────────────────────────────────────────┘
 ```
 
-### 三个杠杆（全部对齐 DSH）
+### Three levers (all aligned with DSH)
 
-1. **工具 schema** —— 首轮真实暴露 Minimal 工具对（`bash` + `str_replace_editor`），
-   与官方 minimal preset 名称逐字节一致
-2. **persona** —— 首轮起 system prompt 整体替换为 DSH Minimal 原文
-   （`complete: true` 语义：全程保持，只有工具目录晋升）。modeltest 证明**改写
-   persona 会破坏 `We need` 风格**，故文本不可配置（`bootstrapPersona` 仅供覆盖
-   为 null 退回剥离模式）
-3. **注入剥离** —— AGENTS.md（`<project_context>`）与技能目录
-   （`<available_skills>`）不进 prompt；用户主动 `/skill:` 手势不受影响
+1. **Tool schema** — the first request really exposes the Minimal tool pair
+   (`bash` + `str_replace_editor`), byte-identical to the official minimal
+   preset names.
+2. **Persona** — the system prompt is replaced by the DSH Minimal original from
+   the first request (`complete: true` semantics: it stays for the whole
+   session; only the tool catalog promotes). Modeltest showed that **rephrasing
+   the persona breaks the `We need` style**, so the text is intentionally not
+   configurable for rewording (`bootstrapPersona` may be set to `null` to fall
+   back to strip-only mode).
+3. **Injection stripping** — AGENTS.md (`<project_context>`) and the skill
+   catalog (`<available_skills>`) do not enter the prompt. User-invoked
+   `/skill:` gestures are not filtered.
 
-### 晋升信号
+### Promotion signals
 
-- `promoteOn: "either"`（默认）：首次持久工具执行 **或** 首次 assistant 消息，先到者为准
-- `promoteOn: "tool-call"`：仅工具调用晋升（纯文字首答不晋升）
-- `promoteOn: "assistant-message"`：仅消息晋升
-- `promoteOn: "never"`：**纯 minimal 档**——永不晋升（DSH 最高分档 99/96，代价是
-  只有两个工具）
+- `promoteOn: "either"` (default): first durable tool execution **or** first
+  assistant message, whichever comes first.
+- `promoteOn: "tool-call"`: only a tool call promotes (a pure-text first answer
+  does not).
+- `promoteOn: "assistant-message"`: only a message promotes.
+- `promoteOn: "never"`: **pure minimal mode** — never promotes (DSH highest
+  score tier 99/96, at the cost of only two tools).
 
-### 子代理（Agent 工具）自动继承 ✅
+### Subagents automatically inherit ✅
 
-pi-subagents 的 append 模式把父 agent 的 system prompt 原样嵌入子代理前缀；且
-子代理是**独立 session + 独立扩展实例 + 独立 phase**，因此每次 spawn 都是一次完整
-的 anchored 会话：bootstrap（首轮同样只有 bash + str_replace_editor）→ 晋升 →
-全量。实测确认（debug 日志）：子代理首轮 payload 被过滤为 `[bash, str_replace_editor]`，
-首次工具调用后恢复全量。比 DSH 的 includeSubagents 更强——**零额外锚定轮成本**。
+pi-subagents' append mode embeds the parent agent's system prompt verbatim as
+the subagent's prompt prefix. Each subagent is also an **independent session +
+independent extension instance + independent phase**, so every spawn is a
+complete anchored session: bootstrap (first request again limited to `bash` +
+`str_replace_editor`) → promote → full tools. This has been verified with debug
+logs: the subagent's first payload is filtered to
+`[bash, str_replace_editor]`, then restored after its first tool call. This is
+stronger than DSH's `includeSubagents` — **zero extra anchor-round cost**.
 
-## 安装
+## Installation
 
 ```sh
 pi install git:github.com/GY-Bai/pi-dsv4-booster
-# 或带版本 pin：pi install git:github.com/GY-Bai/pi-dsv4-booster@v0.1.0
+# or with a version pin:
+pi install git:github.com/GY-Bai/pi-dsv4-booster@v0.1.0
 ```
 
-重启 pi 或 `/reload`，然后 `/new` 新开会话体验 bootstrap → 晋升流程。
-（旧版 anchored-tools 全局扩展若已安装，建议移除避免双份：`rm -rf ~/.pi/agent/extensions/anchored-tools`）
+Restart pi or run `/reload`, then start a new session with `/new` to experience
+the bootstrap → promote flow.
 
-## 配置
+> If you previously installed the older `anchored-tools` global extension,
+> remove it to avoid duplication:
+> `rm -rf ~/.pi/agent/extensions/anchored-tools`
 
-`~/.pi/agent/settings.json`（全局 base）或受信任项目的 `.pi/settings.json`
-（deep-merge 覆盖：嵌套合并、数组整体替换、项目优先）。**每个事件重读，改配置即时生效**。
+## Configuration
+
+Settings are read from `~/.pi/agent/settings.json` (global base) or a trusted
+project's `.pi/settings.json` (deep-merge override: nested objects merge,
+arrays are replaced wholesale, project wins). **Config is re-read on every
+event**, so edits take effect immediately.
 
 ```json
 {
@@ -114,88 +140,116 @@ pi install git:github.com/GY-Bai/pi-dsv4-booster
 }
 ```
 
-> 兼容：旧键 `anchoredTools` 仍被识别（`piDsv4Booster` 优先）。
+> Compatibility: the legacy key `anchoredTools` is still recognized
+> (`piDsv4Booster` takes precedence).
 
-| 键 | 默认 | 含义 |
+| Key | Default | Meaning |
 |---|---|---|
-| `enabled` | `true` | 总开关 |
-| `models` | `[]` | glob 目标模型（`"deepseek/*"`、`"*/deepseek-v4-pro"`、裸 `"deepseek-v4-pro"`）；`[]` = 全部模型（注意：dbydd 原版 `[]` = 不锚定任何模型，本插件取相反语义） |
-| `bootstrapTools` | `["bash","str_replace_editor"]` | 请求 #1 工具——与 DSH Minimal 逐字节同名；缺失时 fail-safe 跳过限制 |
-| `bootstrapPersona` | `"You are a helpful software engineer assistant."` | Minimal persona（DSH 原文，勿改写）；`null` 退回仅剥离模式 |
-| `bootstrapCwdLine` | `true` | persona 后追加 `Current working directory: <cwd>` |
-| `personaMode` | `"session"` | `session`（persona 全程）/ `bootstrap-only`（晋升后恢复宿主 prompt） |
-| `minimalSystemPrompt` | `true` | dbydd 兼容键；`false` 且项目层未显式设 `bootstrapPersona` 时禁用 persona 并保持宿主 prompt 完全不动 |
-| `promoteOn` | `"either"` | `either` / `tool-call` / `assistant-message` / `never`（纯 minimal 档） |
-| `suppressContextSources` | `["contextFiles","skills"]` | 剥离模式下的注入段；`[]` 关闭 |
-| `bootstrapMaxTokens` | `null` | 请求 #1 可选输出封顶（改写 `max_tokens`） |
-| `notify` | `true` | 晋升时 TUI 通知 |
-| `debug` | `false` | console 诊断日志（session/phase/payload 过滤前后） |
+| `enabled` | `true` | Master switch. |
+| `models` | `[]` | Glob target models (`"deepseek/*"`, `"*/deepseek-v4-pro"`, bare `"deepseek-v4-pro"`); `[]` = all models. Note: this is the opposite of dbydd's original `[]` = no models. |
+| `bootstrapTools` | `["bash","str_replace_editor"]` | Request #1 tools — byte-identical names to the DSH Minimal pair; missing tools fail safe and skip restriction. |
+| `bootstrapPersona` | `"You are a helpful software engineer assistant."` | Minimal persona (DSH original, do not reword); `null` falls back to strip-only mode. |
+| `bootstrapCwdLine` | `true` | Append `Current working directory: <cwd>` after the persona. |
+| `personaMode` | `"session"` | `session` (persona stays for the whole session) / `bootstrap-only` (restore host prompt after promotion). |
+| `minimalSystemPrompt` | `true` | dbydd-compatible key; when `false` and no explicit project `bootstrapPersona`, disables the persona and leaves the host prompt untouched. |
+| `promoteOn` | `"either"` | `either` / `tool-call` / `assistant-message` / `never` (pure minimal). |
+| `suppressContextSources` | `["contextFiles","skills"]` | Injection sections stripped in strip mode; `[]` disables. |
+| `bootstrapMaxTokens` | `null` | Optional output cap for request #1 (rewrites `max_tokens`). |
+| `notify` | `true` | Show a TUI notification on promotion. |
+| `debug` | `false` | Console diagnostics (session/phase/payload before/after filtering). |
 
-## 命令
+## Commands
 
-- `/pi-dsv4-booster` —— 显示 phase、配置、模型匹配、active tools
-- `/pi-dsv4-booster promote` —— 手动晋升
-- 旧别名：`/anchored`、`/anchored-tools`
+- `/pi-dsv4-booster` — show phase, config, model matching, and active tools.
+- `/pi-dsv4-booster promote` — promote manually.
+- Legacy aliases: `/anchored`, `/anchored-tools`.
 
-## str_replace_editor（DSH Minimal 第二工具）
+## `str_replace_editor` (DSH Minimal's second tool)
 
-`bootstrapTools` 中的 `str_replace_editor` 由本插件注册，**名称、参数 schema、描述、
-语义与官方 `@deepseek-ai/dsh-tool-str-replace-editor` 一致**（minimal preset）：
+`str_replace_editor` is registered by this extension. Its **name, parameter
+schema, description, and semantics match the official
+`@deepseek-ai/dsh-tool-str-replace-editor`** (minimal preset):
 
-- 参数：`command`（`view`/`create`/`str_replace`/`insert`）、`path`、`file_text`、
-  `old_str`、`new_str`、`insert_line`、`view_range`
-- `view`：`cat -n` 格式（6 位行号 + Tab）；目录列出非隐藏项最多 2 层；支持行范围
-- `str_replace`：**唯一匹配**才替换；多匹配报错并列出冲突行号；零匹配报错
-- `insert`：在 `insert_line` 行后插入
-- `create`：已存在报错
-- 输出 16000 字符截断（`<response clipped>`）
-- 错误消息格式与官方一致（`did not appear verbatim` / `Multiple occurrences...`）
+- Parameters: `command` (`view` / `create` / `str_replace` / `insert`),
+  `path`, `file_text`, `old_str`, `new_str`, `insert_line`, `view_range`.
+- `view`: `cat -n` formatting (6-digit line numbers + Tab); directories list
+  non-hidden entries up to 2 levels deep; supports line ranges.
+- `str_replace`: **unique-match only**; multiple matches error with conflicting
+  line numbers; zero matches error.
+- `insert`: inserts after `insert_line`.
+- `create`: errors if the file already exists.
+- Output is truncated at 16,000 chars (`<response clipped>`).
+- Error messages follow the official format (`did not appear verbatim` /
+  `Multiple occurrences... Please ensure it is unique`).
 
-## 实测数据（pi 0.84.2 + deepseek-v4-flash + xhigh）
+## Measured results
 
-| 组 | 条件 | 首轮 thinking 首行 | we | let me |
+Environment: pi 0.84.2 + `deepseek-v4-flash` (opencode-go) + xhigh thinking.
+
+| Group | Condition | First thinking line | we | let me |
 |---|---|---|---|---|
-| Booster ON | bash+str_replace_editor + Minimal persona | `We need modify file. Need inspect.` | **1** | **0** |
-| OFF | 全工具 + pi 标准 prompt | `Let me first read the file to understand the structure.` | 0 | 1 |
+| Booster ON | `bash` + `str_replace_editor` + Minimal persona | `We need modify file. Need inspect.` | **1** | **0** |
+| OFF | full tools + pi standard prompt | `Let me first read the file to understand the structure.` | 0 | 1 |
 
-- 中文/英文任务均锚定 `We need`，全轮 `let me` = 0（对照 OFF ≥1），与 DSH 文档
-  记载（we 1.4 / let me 0.0）逐字吻合
-- **关键结论：仅工具瘦身或仅剥离注入都不够，必须 persona 整体覆盖**（三杠杆缺一不可）
-- 晋升后：完整工具恢复（web_search/Agent 实测可用）、任务质量与 OFF 等价（6/6 用例）、
-  子代理自动继承完整流程
-- 产物验证与官方 sre 行为测试见 `tests/`
+- Chinese and English tasks both anchor on `We need`; the whole-turn `let me`
+  count is 0 (OFF ≥ 1), matching the DSH documentation fingerprint
+  (we 1.4 / let me 0.0).
+- **Key conclusion:** tool slimming alone or injection stripping alone is not
+  enough — the persona override is required (all three levers are necessary).
+- After promotion: full tools are restored (`web_search` / `Agent` verified),
+  task quality is equivalent to OFF (6/6 cases), and subagents automatically
+  inherit the whole flow.
 
-## 测试
+## Tests
 
 ```sh
-node tests/run.mjs      # 扩展逻辑：27 项（bootstrap/晋升/resume/models 过滤/payload 层/兼容键）
-node tests/sre-run.mjs  # str_replace_editor 行为：9 项（view/replace/insert/create/错误语义）
+node tests/run.mjs      # extension logic: bootstrap/promote/resume/models filtering/payload layer/compat keys
+node tests/sre-run.mjs  # str_replace_editor behavior: view/replace/insert/create/error semantics
 ```
 
-## 与上游差异
+Both suites pass in this repository (29 extension-logic assertions + 9
+`str_replace_editor` behavior assertions).
+
+## Comparison with upstream
 
 | | dsh-anchored-standard | pi-dsv4-booster |
 |---|---|---|
-| 宿主 | DeepSeek Harness (Cordis) | pi (ExtensionAPI) |
-| 钩子层 | system-prompt/assemble | setActiveTools + before_agent_start + before_provider_request 三重 |
-| 阶段来源 | session.events | sessionManager entries（resume/reload 安全） |
-| 工具 | bash + str_replace_editor | 同名同 schema（str_replace_editor 为本插件实现） |
-| 子代理 | includeSubagents 可选（多一次锚定轮） | **自动继承，零额外成本** |
-| 配置 | preset YAML | pi settings.json 多级覆盖，每事件重读 |
+| Host | DeepSeek Harness (Cordis) | pi (ExtensionAPI) |
+| Hook layer | system-prompt/assemble | `setActiveTools` + `before_agent_start` + `before_provider_request` |
+| Phase source | `session.events` | `sessionManager` entries (resume/reload safe) |
+| Tools | `bash` + `str_replace_editor` | Same names and schema (`str_replace_editor` implemented by this extension) |
+| Subagents | `includeSubagents` optional (extra anchor round) | **Automatic inheritance, zero extra cost** |
+| Config | preset YAML | pi settings.json multi-level override, re-read per event |
 
-## 已知限制
+## Known limitations
 
-- 首轮确实没有 web_search/Agent 等重工具（设计使然；首次工具调用即晋升）
-- `promoteOn: "never"` 是真实能力受限的纯 minimal 档（DSH 最高分档，但只适合
-  单任务评测场景）
-- 晋升后 thinking 风格词有轻微回退（`Need...`，`we` 保持、`let me` 不回归）——
-  与 DSH 观测一致，属恢复能力的可控代价
-- Flash 与 Pro 的触发敏感性不同（modeltest：Flash 跟随 persona 为主，Pro 还受
-  工具目录影响）；本插件对两者均生效，但"风格切换 ≠ 分数提升"在 Flash 上无证据
+- The first request genuinely lacks `web_search` / `Agent` and other heavy
+  tools (by design; the first durable tool call promotes).
+- `promoteOn: "never"` is a real capability-limited pure minimal mode (DSH's
+  highest score tier, but best suited for single-task evaluation).
+- After promotion there is a mild thinking-style shift (`We need` → `Need`;
+  `we` stays, `let me` does not regress) — this is also observed in DSH and is
+  the controlled cost of restoring full capability.
+- Flash and Pro have different trigger sensitivity (modeltest: Flash follows
+  the persona more, Pro is also affected by the tool catalog). This extension
+  works for both, but there is no evidence on Flash that "style switch"
+  translates to a score gain.
+
+## Notes on usage
+
+- **New sessions get the full anchor.** A resumed session with history is
+  detected as already promoted. Use `/new` when you want a fresh bootstrap.
+- If you want the first request to already include more tools, adjust
+  `bootstrapTools` — but keeping the DSH Minimal pair (`bash` +
+  `str_replace_editor`) is what preserves the byte-identical Minimal condition.
 
 ## License
 
-MIT。概念移植自 [`xiaobright/dsh-anchored-standard`](https://github.com/xiaobright/dsh-anchored-standard)
-(MIT) 与 [`dbydd/pi-anchored-tool-for-dspro`](https://github.com/dbydd/pi-anchored-tool-for-dspro) (MIT)，
-`str_replace_editor` 定义源自 DeepSeek Harness（MIT），见上游项目原始声明。
-本插件与 DeepSeek / pi 官方无隶属或背书关系。
+MIT. Concept ported from
+[`xiaobright/dsh-anchored-standard`](https://github.com/xiaobright/dsh-anchored-standard)
+(MIT) and
+[`dbydd/pi-anchored-tool-for-dspro`](https://github.com/dbydd/pi-anchored-tool-for-dspro)
+(MIT); the `str_replace_editor` definition originates from DeepSeek Harness
+(MIT) — see upstream project notices.
+
+This project is not affiliated with or endorsed by DeepSeek or pi.
