@@ -314,19 +314,34 @@ function isChildSession(ctx: ExtensionContext): boolean {
  * Whether to preserve the current custom system prompt and prepend the Minimal
  * persona instead of replacing the whole prompt.
  *
- * Custom subagents (e.g. Reviewer with `prompt_mode: replace`) must keep their
- * role instructions; replacing them with the one-line Minimal persona would
- * destroy the agent's purpose. For those sessions we keep the prompt and add
- * the persona as a prefix, while still applying the bootstrap tool filter.
+ * The default is NOT to preserve: every subagent starts with the pure Minimal
+ * persona so the trajectory anchor is not diluted by a role prompt. Role
+ * instructions are restored after promotion (bootstrap-only for children).
+ * Set `preserveCustomPrompt: true` only for agents that must keep their role
+ * text visible from the very first request.
  */
-function shouldPreserveCustomPrompt(ctx: ExtensionContext, customPrompt?: string): boolean {
-  if (config.preserveCustomPrompt === true) return true;
-  if (config.preserveCustomPrompt === false) return false;
-  if (!isChildSession(ctx)) return false;
-  // Auto mode: persisted child sessions with a custom prompt are preserved;
-  // in the payload fallback we do not have customPrompt, so a child session
-  // is enough to choose the preserving path (the prepend helper is idempotent).
-  return customPrompt === undefined || customPrompt.trim().length > 0;
+function shouldPreserveCustomPrompt(ctx: ExtensionContext, _customPrompt?: string): boolean {
+  return config.preserveCustomPrompt === true;
+}
+
+/**
+ * Persona lifetime for the current session.
+ *
+ * Subagents default to `bootstrap-only`: pure Minimal persona on request #1,
+ * then the host/custom prompt is restored after promotion. The main agent
+ * keeps the configured `personaMode` (default `session`).
+ */
+function effectivePersonaMode(ctx: ExtensionContext): "session" | "bootstrap-only" {
+  if (config.personaMode === "bootstrap-only") return "bootstrap-only";
+  if (isChildSession(ctx) && config.preserveCustomPrompt !== true) return "bootstrap-only";
+  return "session";
+}
+
+/** Whether the Minimal persona should be applied for this request. */
+function shouldApplyPersona(ctx: ExtensionContext): boolean {
+  if (!config.bootstrapPersona) return false;
+  if (effectivePersonaMode(ctx) === "bootstrap-only" && phase !== "bootstrap") return false;
+  return true;
 }
 
 // ---------------- phase derivation (resume-safe) ----------------------------
@@ -714,7 +729,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event: BeforeAgentStartEvent, ctx) => {
     loadConfig(ctx);
     if (!config.enabled || !isTarget(ctx)) return;
-    if (config.personaMode === "bootstrap-only" && phase !== "bootstrap") return;
+    if (!shouldApplyPersona(ctx)) return;
     if (config.bootstrapPersona) {
       const persona = config.bootstrapPersona.trim();
       if (shouldPreserveCustomPrompt(ctx, event.systemPromptOptions.customPrompt)) {
@@ -779,7 +794,7 @@ export default function (pi: ExtensionAPI) {
 
     // Persona (only when no before_agent_start persona override is in play —
     // both paths converge on the same text, payload rewrite is the fallback).
-    if (config.bootstrapPersona) {
+    if (config.bootstrapPersona && shouldApplyPersona(ctx)) {
       if (shouldPreserveCustomPrompt(ctx)) {
         if (prependSystemPrompt(payload, config.bootstrapPersona)) changed = true;
       } else {

@@ -147,16 +147,7 @@ event**, so edits take effect immediately.
     "bootstrapMaxTokens": null,
     "notify": true,
     "preserveCustomPrompt": null,
-    "agentOverrides": {
-      "kernel-dev": {
-        "preserveCustomPrompt": false,
-        "personaMode": "bootstrap-only"
-      },
-      "reviewer": {
-        "preserveCustomPrompt": false,
-        "personaMode": "bootstrap-only"
-      }
-    },
+    "agentOverrides": {},
     "debug": false
   }
 }
@@ -178,8 +169,8 @@ event**, so edits take effect immediately.
 | `suppressContextSources` | `["contextFiles","skills"]` | Injection sections stripped in strip mode; `[]` disables. |
 | `bootstrapMaxTokens` | `null` | Optional output cap for request #1 (rewrites `max_tokens`). |
 | `notify` | `true` | Show a TUI notification on promotion. |
-| `preserveCustomPrompt` | `null` | `true` always keep custom/subagent prompts and prepend the Minimal persona; `false` always replace with the Minimal persona; `null` auto — preserve for persisted child sessions with a custom prompt, replace elsewhere. |
-| `agentOverrides` | `{}` | Per-agent overrides keyed by subagent type prefix (e.g. `kernel-dev`). Values are partial config keys merged for that agent only, useful for giving different subagent roles different persona strategies. |
+| `preserveCustomPrompt` | `null` | `true` always keep custom/subagent prompts and prepend the Minimal persona; `false` always replace with the Minimal persona; `null` auto — **every subagent starts with the pure Minimal persona and restores its role after promotion**, while the main agent keeps `personaMode` semantics. |
+| `agentOverrides` | `{}` | Optional per-agent exceptions keyed by subagent type prefix (e.g. `kernel-dev`). Values are partial config keys merged for that agent only. You normally do not need this because the universal subagent default already strips role prompts during bootstrap. |
 | `debug` | `false` | Console diagnostics (session/phase/payload before/after filtering). |
 
 ## Commands

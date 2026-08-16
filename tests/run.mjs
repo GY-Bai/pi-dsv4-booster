@@ -236,17 +236,22 @@ await emit("tool_execution_end", { toolCallId: "c1", toolName: "bash", result: "
 check("legacy key honored (never promotes)", appended.length === 0, JSON.stringify(appended));
 rmSync("/tmp/anchor-ab-test/.pi/settings.json", { force: true });
 // ---- scenario 12: custom subagent prompt is preserved + persona prepended ----
-console.log("\n=== Scenario 12: custom subagent prompt preserved ===");
+console.log("\n=== Scenario 12: any subagent starts with pure Minimal persona (no role) ===");
 entries.length = 0; appended.length = 0;
 await emit("session_start", { reason: "new" }, childCtx);
 const customPrompt = "You are an independent reviewer.\nNever modify files.";
 const r12 = await emit("before_agent_start", { systemPrompt: customPrompt, systemPromptOptions: { customPrompt } }, childCtx);
-check("subagent keeps custom role text", r12 && r12.systemPrompt.includes("You are an independent reviewer."), JSON.stringify(r12));
-check("subagent gets minimal persona prefix", r12 && r12.systemPrompt.startsWith("You are a helpful software engineer assistant."), JSON.stringify(r12));
+check("subagent does NOT keep custom role text", r12 && !r12.systemPrompt.includes("You are an independent reviewer."), JSON.stringify(r12));
+check("subagent starts with minimal persona", r12 && r12.systemPrompt.startsWith("You are a helpful software engineer assistant."), JSON.stringify(r12));
 const pay12 = { tools: ALL_TOOLS().map((n) => ({ name: n, type: "function", function: { name: n } })), messages: [{ role: "system", content: customPrompt }] };
 const r12b = await emit("before_provider_request", { payload: pay12 }, childCtx);
-check("subagent payload keeps custom prompt", r12b && r12b.messages[0].content.includes("You are an independent reviewer."), JSON.stringify(r12b));
-check("subagent payload prepends persona", r12b && r12b.messages[0].content.startsWith("You are a helpful software engineer assistant."), JSON.stringify(r12b));
+check("subagent payload replaces custom prompt", r12b && !r12b.messages[0].content.includes("You are an independent reviewer."), JSON.stringify(r12b));
+check("subagent payload uses minimal persona", r12b && r12b.messages[0].content.startsWith("You are a helpful software engineer assistant."), JSON.stringify(r12b));
+// After promotion the role prompt is restored (bootstrap-only for children).
+entries.push({ type: "message", message: { role: "assistant", content: "hi" } });
+await emit("session_start", { reason: "resume" }, childCtx);
+const r12c = await emit("before_agent_start", { systemPrompt: customPrompt, systemPromptOptions: { customPrompt } }, childCtx);
+check("after promotion child role restored", r12c === undefined || r12c.systemPrompt === undefined, JSON.stringify(r12c));
 
 // ---- scenario 13: per-agent override disables custom prompt preservation ----
 console.log("\n=== Scenario 13: per-agent override (kernel-dev) ===");
